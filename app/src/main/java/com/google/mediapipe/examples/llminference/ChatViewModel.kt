@@ -56,7 +56,7 @@ class ChatViewModel(
                 
                 var finalPrompt = systemRules
                 if (textChunks.isNotEmpty()) {
-                    val bestChunk = textChunks.first()
+                    val bestChunk = TextChunker.findBestChunk(userMessage, textChunks)
                     finalPrompt += "Context: $bestChunk\n\n"
                 }
 

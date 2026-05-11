@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
+import com.google.mediapipe.examples.llminference.ui.theme.TextChunker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,7 +19,6 @@ class ChatViewModel(
     private var inferenceModel: InferenceModel
 ) : ViewModel() {
 
-    private var activeContext: String? = null
     private val _isContextLoaded = MutableStateFlow(false)
     val isContextLoaded: StateFlow<Boolean> = _isContextLoaded.asStateFlow()
 
@@ -31,6 +31,9 @@ class ChatViewModel(
     private val _textInputEnabled: MutableStateFlow<Boolean> = MutableStateFlow(true)
     val isTextInputEnabled: StateFlow<Boolean> = _textInputEnabled.asStateFlow()
 
+    private var textChunks: List<String> = emptyList()
+
+
     fun resetInferenceModel(newModel: InferenceModel) {
         inferenceModel = newModel
         _uiState.value = inferenceModel.uiState
@@ -38,7 +41,8 @@ class ChatViewModel(
 
     fun sendMessage(userMessage: String) {
         if (userMessage.startsWith("Context from file: ")) {
-            activeContext = userMessage.removePrefix("Context from file: ")
+            val rawText = userMessage.removePrefix("Context from file: ")
+            textChunks = TextChunker.chunkText(rawText)
             _isContextLoaded.value = true
             return
         }
@@ -51,9 +55,11 @@ class ChatViewModel(
                 val systemRules = "You are an Apollo Hospitals Medical Assistant. You give short, safe medical advice. If the user asks non-medical questions, politely refuse.\n\n"
                 
                 var finalPrompt = systemRules
-                activeContext?.let {
-                    finalPrompt += "Use the following context to answer the question:\n$it\n\n"
+                if (textChunks.isNotEmpty()) {
+                    val bestChunk = textChunks.first()
+                    finalPrompt += "Context: $bestChunk\n\n"
                 }
+
                 finalPrompt += "<start_of_turn>user\n$userMessage<end_of_turn>\n<start_of_turn>model\n"
 
                 val asyncInference =  inferenceModel.generateResponseAsync(finalPrompt, { partialResult, done ->
@@ -84,7 +90,9 @@ class ChatViewModel(
     }
 
     fun clearContext() {
-        activeContext = null
+        // 1. Clear the list of chunks
+        textChunks = emptyList()
+        // 2. Hide the indicator
         _isContextLoaded.value = false
     }
 

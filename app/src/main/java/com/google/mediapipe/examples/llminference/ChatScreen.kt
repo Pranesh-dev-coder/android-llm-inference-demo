@@ -25,14 +25,15 @@ import androidx.compose.material.icons.filled.Add
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -128,42 +129,33 @@ fun ChatScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(8.dp),
+                .padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = InferenceModel.model.toString(),
-                style = MaterialTheme.typography.titleSmall
-            )
-            Text(
-                text = if (tokens >= 0) "$tokens ${stringResource(R.string.tokens_remaining)}" else "",
-                style = MaterialTheme.typography.titleSmall
-            )
-            // Wrap the buttons in another Row to keep them together
-            Row {
-                IconButton(
-                    onClick = {
-                        InferenceModel.getInstance(context).resetSession()
-                        uiState.clearMessages()
-                        resetTokenCount()
-                    },
-                    enabled = textInputEnabled
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Clear Chat")
-                }
-
-                IconButton(
-                    onClick = {
-                        InferenceModel.getInstance(context).close()
-                        uiState.clearMessages()
-                        resetTokenCount()
-                        onClose()
-                    },
-                    enabled = textInputEnabled
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close Chat")
-                }
+            Column {
+                Text(
+                    text = InferenceModel.model.toString().replace("_", " "),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = if (tokens >= 0) "$tokens tokens left" else "Calculating...",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            
+            IconButton(
+                onClick = {
+                    InferenceModel.getInstance(context).close()
+                    uiState.clearMessages()
+                    resetTokenCount()
+                    onClose()
+                },
+                enabled = textInputEnabled
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Close")
             }
         }
 
@@ -310,59 +302,60 @@ fun ChatScreen(
 fun ChatItem(
     chatMessage: ChatMessage
 ) {
-    val backgroundColor = if (chatMessage.isFromUser) {
-        MaterialTheme.colorScheme.tertiaryContainer
-    } else if (chatMessage.isThinking) {
-        MaterialTheme.colorScheme.primaryContainer
+    val isUser = chatMessage.isFromUser
+    val bubbleColor = if (isUser) {
+        MaterialTheme.colorScheme.primary
     } else {
-        MaterialTheme.colorScheme.secondaryContainer
+        MaterialTheme.colorScheme.surfaceVariant
     }
 
-    val bubbleShape = if (chatMessage.isFromUser) {
-        RoundedCornerShape(20.dp, 4.dp, 20.dp, 20.dp)
+    val contentColor = if (isUser) {
+        MaterialTheme.colorScheme.onPrimary
     } else {
-        RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp)
+        MaterialTheme.colorScheme.onSurfaceVariant
     }
 
-    val horizontalAlignment = if (chatMessage.isFromUser) {
-        Alignment.End
+    val bubbleShape = if (isUser) {
+        RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp)
     } else {
-        Alignment.Start
+        RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp)
     }
+
+    val horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
 
     Column(
         horizontalAlignment = horizontalAlignment,
         modifier = Modifier
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
             .fillMaxWidth()
     ) {
-        val author = if (chatMessage.isFromUser) {
-            stringResource(R.string.user_label)
-        } else if (chatMessage.isThinking) {
-            stringResource(R.string.thinking_label)
-        } else {
-            stringResource(R.string.model_label)
-        }
         Text(
-            text = author,
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(bottom = 4.dp)
+            text = if (isUser) "You" else if (chatMessage.isThinking) "DeepSeek (Thinking...)" else "AI Assistant",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color.Gray,
+            modifier = Modifier.padding(bottom = 2.dp, start = if (isUser) 0.dp else 4.dp, end = if (isUser) 4.dp else 0.dp)
         )
         Row {
             BoxWithConstraints {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = backgroundColor),
+                ElevatedCard(
+                    colors = CardDefaults.elevatedCardColors(containerColor = bubbleColor),
                     shape = bubbleShape,
-                    modifier = Modifier.widthIn(0.dp, maxWidth * 0.9f)
+                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier.widthIn(0.dp, maxWidth * 0.85f)
                 ) {
                     if (chatMessage.isLoading) {
                         CircularProgressIndicator(
-                            modifier = Modifier.padding(16.dp)
+                            modifier = Modifier.padding(12.dp).size(24.dp),
+                            strokeWidth = 2.dp,
+                            color = contentColor
                         )
                     } else {
                         Text(
                             text = chatMessage.message,
-                            modifier = Modifier.padding(16.dp)
+                            color = contentColor,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(12.dp)
                         )
                     }
                 }

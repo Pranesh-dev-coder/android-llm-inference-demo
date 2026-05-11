@@ -18,6 +18,7 @@ class ChatViewModel(
     private var inferenceModel: InferenceModel
 ) : ViewModel() {
 
+    private var activeContext: String? = null
     private val _uiState: MutableStateFlow<UiState> = MutableStateFlow(inferenceModel.uiState)
     val uiState: StateFlow<UiState> =_uiState.asStateFlow()
 
@@ -33,14 +34,25 @@ class ChatViewModel(
     }
 
     fun sendMessage(userMessage: String) {
+        if (userMessage.startsWith("Context from file: ")) {
+            activeContext = userMessage.removePrefix("Context from file: ")
+            return
+        }
+
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.value.addMessage(userMessage, USER_PREFIX)
             _uiState.value.createLoadingMessage()
             setInputEnabled(false)
             try {
                 val systemRules = "You are an Apollo Hospitals Medical Assistant. You give short, safe medical advice. If the user asks non-medical questions, politely refuse.\n\n"
-                val fullPrompt = systemRules + "<start_of_turn>user\n$userMessage<end_of_turn>\n<start_of_turn>model\n"
-                val asyncInference =  inferenceModel.generateResponseAsync(fullPrompt, { partialResult, done ->
+                
+                var finalPrompt = systemRules
+                activeContext?.let {
+                    finalPrompt += "Use the following context to answer the question:\n$it\n\n"
+                }
+                finalPrompt += "<start_of_turn>user\n$userMessage<end_of_turn>\n<start_of_turn>model\n"
+
+                val asyncInference =  inferenceModel.generateResponseAsync(finalPrompt, { partialResult, done ->
                     _uiState.value.appendMessage(partialResult)
                     if (done) {
                         setInputEnabled(true)  // Re-enable text input

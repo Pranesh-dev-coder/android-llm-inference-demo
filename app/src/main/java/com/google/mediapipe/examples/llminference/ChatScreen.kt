@@ -20,6 +20,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Add
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -94,6 +98,17 @@ fun ChatScreen(
 ) {
     var userMessage by rememberSaveable { mutableStateOf("") }
     val tokens by remainingTokens.collectAsState(initial = -1)
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            val content = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { it.readText() }
+            if (content != null) {
+                onSendMessage("Context from file: $content")
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -183,6 +198,18 @@ fun ChatScreen(
         ) {
 
             Column { }
+
+            IconButton(
+                onClick = {
+                    launcher.launch("text/plain")
+                },
+                enabled = textInputEnabled
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "Attach File"
+                )
+            }
 
             Spacer(modifier = Modifier.width(8.dp))
 

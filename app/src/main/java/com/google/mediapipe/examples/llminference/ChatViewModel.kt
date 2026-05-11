@@ -38,7 +38,9 @@ class ChatViewModel(
             _uiState.value.createLoadingMessage()
             setInputEnabled(false)
             try {
-                val asyncInference =  inferenceModel.generateResponseAsync(userMessage, { partialResult, done ->
+                val systemRules = "You are an Apollo Hospitals Medical Assistant. You give short, safe medical advice. If the user asks non-medical questions, politely refuse.\n\n"
+                val fullPrompt = systemRules + "<start_of_turn>user\n$userMessage<end_of_turn>\n<start_of_turn>model\n"
+                val asyncInference =  inferenceModel.generateResponseAsync(fullPrompt, { partialResult, done ->
                     _uiState.value.appendMessage(partialResult)
                     if (done) {
                         setInputEnabled(true)  // Re-enable text input
@@ -79,3 +81,4 @@ class ChatViewModel(
         }
     }
 }
+

@@ -19,6 +19,9 @@ class ChatViewModel(
 ) : ViewModel() {
 
     private var activeContext: String? = null
+    private val _isContextLoaded = MutableStateFlow(false)
+    val isContextLoaded: StateFlow<Boolean> = _isContextLoaded.asStateFlow()
+
     private val _uiState: MutableStateFlow<UiState> = MutableStateFlow(inferenceModel.uiState)
     val uiState: StateFlow<UiState> =_uiState.asStateFlow()
 
@@ -36,6 +39,7 @@ class ChatViewModel(
     fun sendMessage(userMessage: String) {
         if (userMessage.startsWith("Context from file: ")) {
             activeContext = userMessage.removePrefix("Context from file: ")
+            _isContextLoaded.value = true
             return
         }
 
@@ -77,6 +81,11 @@ class ChatViewModel(
 
     private fun setInputEnabled(isEnabled: Boolean) {
         _textInputEnabled.value = isEnabled
+    }
+
+    fun clearContext() {
+        activeContext = null
+        _isContextLoaded.value = false
     }
 
     fun recomputeSizeInTokens(message: String) {

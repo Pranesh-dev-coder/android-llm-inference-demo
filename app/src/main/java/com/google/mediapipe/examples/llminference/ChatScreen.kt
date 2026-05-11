@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -67,16 +68,22 @@ internal fun ChatRoute(
 
     val uiState by chatViewModel.uiState.collectAsStateWithLifecycle()
     val textInputEnabled by chatViewModel.isTextInputEnabled.collectAsStateWithLifecycle()
+    val isContextLoaded by chatViewModel.isContextLoaded.collectAsStateWithLifecycle()
+
     ChatScreen(
         context,
         uiState,
         textInputEnabled,
+        isContextLoaded = isContextLoaded,
         remainingTokens = chatViewModel.tokensRemaining,
         resetTokenCount = {
             chatViewModel.recomputeSizeInTokens("")
         },
         onSendMessage = { message ->
             chatViewModel.sendMessage(message)
+        },
+        onClearContext = {
+            chatViewModel.clearContext()
         },
         onChangedMessage = { message ->
             chatViewModel.recomputeSizeInTokens(message)
@@ -90,9 +97,11 @@ fun ChatScreen(
     context: Context,
     uiState: UiState,
     textInputEnabled: Boolean,
+    isContextLoaded: Boolean,
     remainingTokens: StateFlow<Int>,
     resetTokenCount: () -> Unit,
     onSendMessage: (String) -> Unit,
+    onClearContext: () -> Unit,
     onChangedMessage: (String) -> Unit,
     onClose: () -> Unit
 ) {
@@ -187,6 +196,42 @@ fun ChatScreen(
         ) {
             items(uiState.messages) { chat ->
                 ChatItem(chat)
+            }
+        }
+
+        if (isContextLoaded) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(8.dp))
+                    .padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "📄 Document Loaded as Context",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = onClearContext,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Clear Context",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
         }
 

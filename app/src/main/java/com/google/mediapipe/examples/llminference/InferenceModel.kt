@@ -12,7 +12,7 @@ import java.io.File
 import kotlin.math.max
 
 /** The maximum number of tokens the model can process. */
-var MAX_TOKENS = 1024
+var MAX_TOKENS = 4096
 
 /**
  * An offset in tokens that we use to ensure that the model always has the ability to respond when
@@ -45,6 +45,7 @@ class InferenceModel private constructor(context: Context) {
     fun close() {
         llmInferenceSession.close()
         llmInference.close()
+        instance = null
     }
 
     fun resetSession() {
@@ -81,6 +82,10 @@ class InferenceModel private constructor(context: Context) {
             Log.e(TAG, "LlmInferenceSession create error: ${e.message}", e)
             throw ModelSessionCreateFailException()
         }
+    }
+
+    fun createPrompt(userMessage: String, context: String, isFirstTurn: Boolean): String {
+        return model.createPrompt(userMessage, context, isFirstTurn)
     }
 
     fun generateResponseAsync(prompt: String, progressListener: ProgressListener<String>) : ListenableFuture<String> {

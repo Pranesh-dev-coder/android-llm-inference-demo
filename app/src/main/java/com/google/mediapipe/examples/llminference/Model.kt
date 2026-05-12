@@ -15,12 +15,13 @@ enum class Model(
     val temperature: Float,
     val topK: Int,
     val topP: Float,
+    val systemPrompt: String = "You are an Apollo Hospitals Medical Assistant. You give short, safe medical advice. If the user asks non-medical questions, politely refuse.",
 ) {
     GEMMA3_1B_IT_CPU(
         path = "/data/local/tmp/Gemma3-1B-IT_multi-prefill-seq_q8_ekv2048.task",
         url = "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/Gemma3-1B-IT_multi-prefill-seq_q8_ekv2048.task",
         licenseUrl = "https://huggingface.co/litert-community/Gemma3-1B-IT",
-        needsAuth = false,
+        needsAuth = true,
         preferredBackend = Backend.CPU,
         thinking = false,
         temperature = 1.0f,
@@ -31,7 +32,7 @@ enum class Model(
         path = "/data/local/tmp/Gemma3-1B-IT_multi-prefill-seq_q8_ekv2048.task",
         url = "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/Gemma3-1B-IT_multi-prefill-seq_q8_ekv2048.task",
         licenseUrl = "https://huggingface.co/litert-community/Gemma3-1B-IT",
-        needsAuth = false,
+        needsAuth = true,
         preferredBackend = Backend.GPU,
         thinking = false,
         temperature = 1.0f,
@@ -42,7 +43,7 @@ enum class Model(
         path = "/data/local/tmp/Gemma2-2B-IT_multi-prefill-seq_q8_ekv1280.task",
         url = "https://huggingface.co/litert-community/Gemma2-2B-IT/resolve/main/Gemma2-2B-IT_multi-prefill-seq_q8_ekv1280.task",
         licenseUrl = "https://huggingface.co/litert-community/Gemma2-2B-IT",
-        needsAuth = false,
+        needsAuth = true,
         preferredBackend = Backend.CPU,
         thinking = false,
         temperature = 0.6f,
@@ -64,7 +65,7 @@ enum class Model(
         path = "/data/local/tmp/Llama-3.2-1B-Instruct_multi-prefill-seq_q8_ekv1280.task",
         url = "https://huggingface.co/litert-community/Llama-3.2-1B-Instruct/resolve/main/Llama-3.2-1B-Instruct_multi-prefill-seq_q8_ekv1280.task",
         licenseUrl = "https://huggingface.co/litert-community/Llama-3.2-1B-Instruct",
-        needsAuth = false,
+        needsAuth = true,
         preferredBackend = Backend.CPU,
         thinking = false,
         temperature = 0.6f,
@@ -75,9 +76,9 @@ enum class Model(
         path = "/data/local/tmp/Llama-3.2-3B-Instruct_multi-prefill-seq_q8_ekv1280.task",
         url = "https://huggingface.co/litert-community/Llama-3.2-3B-Instruct/resolve/main/Llama-3.2-3B-Instruct_multi-prefill-seq_q8_ekv1280.task",
         licenseUrl = "https://huggingface.co/litert-community/Llama-3.2-3B-Instruct",
-        needsAuth = false,
+        needsAuth = true,
         preferredBackend = Backend.CPU,
-        thinking = false,
+        thinking = true,
         temperature = 0.6f,
         topK = 64,
         topP = 0.9f,
@@ -147,5 +148,24 @@ enum class Model(
         temperature = 0.95f,
         topK = 40,
         topP = 1.0f
-    ),
+    );
+
+    fun createPrompt(userMessage: String, context: String, isFirstTurn: Boolean): String {
+        return when (this) {
+            GEMMA3_1B_IT_CPU, GEMMA_3_1B_IT_GPU, GEMMA_2_2B_IT_CPU -> {
+                val prefix = if (isFirstTurn) "$systemPrompt\n\n" else ""
+                "$prefix<start_of_turn>user\n$context$userMessage<end_of_turn>\n<start_of_turn>model\n"
+            }
+
+            DEEPSEEK_R1_DISTILL_QWEN_1_5_B, QWEN2_0_5B_INSTRUCT, QWEN2_1_5B_INSTRUCT, QWEN2_5_3B_INSTRUCT, PHI_4_MINI_INSTRUCT, SMOLLM_135M_INSTRUCT, TINYLLAMA_1_1B_CHAT_V1_0 -> {
+                val prefix = if (isFirstTurn) "<|im_start|>system\n$systemPrompt<|im_end|>\n" else ""
+                "$prefix<|im_start|>user\n$context$userMessage<|im_end|>\n<|im_start|>assistant\n"
+            }
+
+            LLAMA_3_2_1B_INSTRUCT, LLAMA_3_2_3B_INSTRUCT -> {
+                val prefix = if (isFirstTurn) "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n$systemPrompt<|eot_id|>" else ""
+                "$prefix<|start_header_id|>user<|end_header_id|>\n\n$context$userMessage<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+            }
+        }
+    }
 }

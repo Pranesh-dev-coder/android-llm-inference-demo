@@ -2,6 +2,7 @@ package com.google.mediapipe.examples.llminference
 
 import android.content.Context
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -39,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -86,6 +89,9 @@ internal fun ChatRoute(
         onClearContext = {
             chatViewModel.clearContext()
         },
+        onResetChat = {
+            chatViewModel.resetChat()
+        },
         onChangedMessage = { message ->
             chatViewModel.recomputeSizeInTokens(message)
         },
@@ -103,6 +109,7 @@ fun ChatScreen(
     resetTokenCount: () -> Unit,
     onSendMessage: (String) -> Unit,
     onClearContext: () -> Unit,
+    onResetChat: () -> Unit,
     onChangedMessage: (String) -> Unit,
     onClose: () -> Unit
 ) {
@@ -145,17 +152,26 @@ fun ChatScreen(
                     color = MaterialTheme.colorScheme.primary
                 )
             }
-            
-            IconButton(
-                onClick = {
-                    InferenceModel.getInstance(context).close()
-                    uiState.clearMessages()
-                    resetTokenCount()
-                    onClose()
-                },
-                enabled = textInputEnabled
-            ) {
-                Icon(Icons.Default.Close, contentDescription = "Close")
+
+            Row {
+                IconButton(
+                    onClick = onResetChat,
+                    enabled = textInputEnabled
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Reset Chat")
+                }
+
+                IconButton(
+                    onClick = {
+                        InferenceModel.getInstance(context).close()
+                        uiState.clearMessages()
+                        resetTokenCount()
+                        onClose()
+                    },
+                    enabled = textInputEnabled
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close")
+                }
             }
         }
 
@@ -305,6 +321,8 @@ fun ChatItem(
     val isUser = chatMessage.isFromUser
     val bubbleColor = if (isUser) {
         MaterialTheme.colorScheme.primary
+    } else if (chatMessage.isThinking) {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     } else {
         MaterialTheme.colorScheme.surfaceVariant
     }
@@ -323,40 +341,115 @@ fun ChatItem(
 
     val horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
 
+    // State to control collapsible thinking process
+    var isExpanded by remember { mutableStateOf(false) }
+
     Column(
         horizontalAlignment = horizontalAlignment,
         modifier = Modifier
             .padding(horizontal = 12.dp, vertical = 6.dp)
             .fillMaxWidth()
     ) {
-        Text(
-            text = if (isUser) "You" else if (chatMessage.isThinking) "DeepSeek (Thinking...)" else "AI Assistant",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = Color.Gray,
-            modifier = Modifier.padding(bottom = 2.dp, start = if (isUser) 0.dp else 4.dp, end = if (isUser) 4.dp else 0.dp)
-        )
-        Row {
-            BoxWithConstraints {
-                ElevatedCard(
-                    colors = CardDefaults.elevatedCardColors(containerColor = bubbleColor),
-                    shape = bubbleShape,
-                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
-                    modifier = Modifier.widthIn(0.dp, maxWidth * 0.85f)
+        if (chatMessage.isThinking) {
+            // Collapsible Header for Reasoning Models
+            Column(
+                modifier = Modifier.fillMaxWidth(0.85f)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .background(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .clickable { isExpanded = !isExpanded }
                 ) {
-                    if (chatMessage.isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.padding(12.dp).size(24.dp),
-                            strokeWidth = 2.dp,
-                            color = contentColor
-                        )
-                    } else {
-                        Text(
-                            text = chatMessage.message,
-                            color = contentColor,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(12.dp)
-                        )
+                    var dotCount by remember { mutableStateOf(0) }
+                    LaunchedEffect(chatMessage.isLoading) {
+                        if (chatMessage.isLoading) {
+                            while (true) {
+                                kotlinx.coroutines.delay(400)
+                                dotCount = (dotCount + 1) % 4
+                            }
+                        }
+                    }
+                    val flowingDots = if (chatMessage.isLoading) " " + ".".repeat(dotCount) else ""
+                    Text(
+                        text = "💡 Thinking Process$flowingDots",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = if (isExpanded) "▲" else "▼",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                // Show reasoning content only when expanded or while actively loading/thinking
+                if (isExpanded || chatMessage.isLoading) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ElevatedCard(
+                        colors = CardDefaults.elevatedCardColors(containerColor = bubbleColor),
+                        shape = RoundedCornerShape(8.dp),
+                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (chatMessage.isLoading && chatMessage.message.isEmpty()) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.padding(12.dp).size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = contentColor
+                            )
+                        } else {
+                            Text(
+                                text = chatMessage.message,
+                                color = contentColor.copy(alpha = 0.8f),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            // Standard User or Final AI Answer Bubble
+            Text(
+                text = if (isUser) "You" else "AI Assistant",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color.Gray,
+                modifier = Modifier.padding(
+                    bottom = 2.dp,
+                    start = if (isUser) 0.dp else 4.dp,
+                    end = if (isUser) 4.dp else 0.dp
+                )
+            )
+            Row {
+                BoxWithConstraints {
+                    ElevatedCard(
+                        colors = CardDefaults.elevatedCardColors(containerColor = bubbleColor),
+                        shape = bubbleShape,
+                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+                        modifier = Modifier.widthIn(0.dp, maxWidth * 0.85f)
+                    ) {
+                        if (chatMessage.isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.padding(12.dp).size(24.dp),
+                                strokeWidth = 2.dp,
+                                color = contentColor
+                            )
+                        } else {
+                            Text(
+                                text = chatMessage.message,
+                                color = contentColor,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
                     }
                 }
             }

@@ -52,19 +52,19 @@ class ChatViewModel(
             _uiState.value.createLoadingMessage()
             setInputEnabled(false)
             try {
-                val systemRules = "You are an Apollo Hospitals Medical Assistant. You give short, safe medical advice. If the user asks non-medical questions, politely refuse.\n\n"
-                
-                var finalPrompt = systemRules
-                if (textChunks.isNotEmpty()) {
-                    val bestChunk = TextChunker.findBestChunk(userMessage, textChunks)
-                    finalPrompt += "Context: $bestChunk\n\n"
-                }
+                val isFirstTurn = _uiState.value.messages.count { it.isFromUser } <= 1
 
-                finalPrompt += "<start_of_turn>user\n$userMessage<end_of_turn>\n<start_of_turn>model\n"
+                val contextString = if (textChunks.isNotEmpty()){
+                    val bestChunk = TextChunker.findBestChunk(userMessage, textChunks)
+                    "Relevant Document Context:\n$bestChunk\n\n"
+                } else ""
+
+                val finalPrompt = inferenceModel.createPrompt(userMessage, contextString, isFirstTurn)
 
                 val asyncInference =  inferenceModel.generateResponseAsync(finalPrompt, { partialResult, done ->
                     _uiState.value.appendMessage(partialResult)
                     if (done) {
+                        _uiState.value.finishMessage()
                         setInputEnabled(true)  // Re-enable text input
                     } else {
                         // Reduce current token count (estimate only). sizeInTokens() will be used
@@ -94,6 +94,12 @@ class ChatViewModel(
         textChunks = emptyList()
         // 2. Hide the indicator
         _isContextLoaded.value = false
+    }
+
+    fun resetChat() {
+        inferenceModel.resetSession()
+        _uiState.value.clearMessages()
+        _tokensRemaining.value = -1
     }
 
     fun recomputeSizeInTokens(message: String) {

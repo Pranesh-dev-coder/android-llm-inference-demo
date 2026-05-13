@@ -52,14 +52,17 @@ class ChatViewModel(
             _uiState.value.createLoadingMessage()
             setInputEnabled(false)
             try {
-                val isFirstTurn = _uiState.value.messages.count { it.isFromUser } <= 1
+                // 1. Flush the C++ KV Cache to prevent ekv1280 overflow crashes
+                inferenceModel.resetSession()
 
+                // 2. Format any loaded document context cleanly
                 val contextString = if (textChunks.isNotEmpty()){
                     val bestChunk = TextChunker.findBestChunk(userMessage, textChunks)
                     "Relevant Document Context:\n$bestChunk\n\n"
                 } else ""
 
-                val finalPrompt = inferenceModel.createPrompt(userMessage, contextString, isFirstTurn)
+                // 3. Generate a syntactically pristine standalone ChatML sequence wrapper
+                val finalPrompt = buildSlidingWindowPrompt(userMessage, contextString)
 
                 val asyncInference =  inferenceModel.generateResponseAsync(finalPrompt, { partialResult, done ->
                     _uiState.value.appendMessage(partialResult)
@@ -105,6 +108,33 @@ class ChatViewModel(
     fun recomputeSizeInTokens(message: String) {
         val remainingTokens = inferenceModel.estimateTokensRemaining(message)
         _tokensRemaining.value = remainingTokens
+    }
+
+    private fun buildSlidingWindowPrompt(newQuery: String, documentContext: String): String {
+        val history = _uiState.value.messages.filter {
+            !it.isLoading && it.rawMessage.isNotBlank()
+        }
+
+        val maxHistoryTurns = 6
+        val recentHistory = history.takeLast(maxHistoryTurns)
+
+        val sb = StringBuilder()
+
+        // 3. Re-synthesize the ChatML sequence with preserved state
+        for (msg in recentHistory) {
+            val role = if (msg.isFromUser) USER_PREFIX else MODEL_PREFIX
+            // Clean out internal monologue tags if present so we don't duplicate reasoning logic
+            val cleanMsg = msg.rawMessage.replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "").trim()
+            sb.append(role).append(cleanMsg).append("\n")
+        }
+
+        val formattedContext = if (documentContext.isNotEmpty()) {
+            "Relevant Context:\n$documentContext\n\n"
+        } else ""
+
+        sb.append(USER_PREFIX).append(formattedContext).append(newQuery).append("\n").append(MODEL_PREFIX)
+
+        return inferenceModel.createPrompt(sb.toString(), "", isFirstTurn = true)
     }
 
     companion object {

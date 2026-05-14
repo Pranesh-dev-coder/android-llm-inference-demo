@@ -8,7 +8,7 @@ const val THINKING_MARKER_START = "<think>"
 const val THINKING_MARKER_END = "</think>"
 
 // Turn markers to stop hallucination
-val STOP_MARKERS = listOf("<|im_end|>", "<|im_start|>", "<start_of_turn>", "<end_of_turn>", "###")
+val STOP_MARKERS = listOf("<|im_end|>", "<|im_start|>", "<start_of_turn>", "<end_of_turn>", "###", "</s>", "<|user|>", "<|assistant|>")
 
 /** Management of the message queue. */
 class UiState(
@@ -103,7 +103,14 @@ class UiState(
     fun finishMessage() {
         val index = _messages.indexOfFirst { it.id == _currentMessageId }
         if (index != -1) {
-            _messages[index] = _messages[index].copy(isLoading = false)
+            val msg = _messages[index]
+            if (msg.isThinking) {
+                // Fallback: If the model finishes generating but never outputted </think>,
+                // treat the entire block as the final answer so it doesn't get stuck in the UI.
+                _messages[index] = msg.copy(isLoading = false, isThinking = false)
+            } else {
+                _messages[index] = msg.copy(isLoading = false)
+            }
         }
         currentResponseBuffer = ""
     }

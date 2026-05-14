@@ -64,7 +64,7 @@ class ChatViewModel(
                 // 3. Generate a syntactically pristine standalone ChatML sequence wrapper
                 val finalPrompt = buildSlidingWindowPrompt(userMessage, contextString)
 
-                val asyncInference =  inferenceModel.generateResponseAsync(finalPrompt, { partialResult, done ->
+                val asyncInference =  inferenceModel.generateResponseAsync(finalPrompt, { partialResult: String, done: Boolean ->
                     _uiState.value.appendMessage(partialResult)
                     if (done) {
                         _uiState.value.finishMessage()
@@ -111,36 +111,44 @@ class ChatViewModel(
     }
 
     private fun buildSlidingWindowPrompt(newQuery: String, documentContext: String): String {
-        val history = _uiState.value.messages.filter {
-            !it.isLoading && it.rawMessage.isNotBlank()
+        // uiState.messages is reversed (newest first). 
+        // We reverse it back to chronological order (oldest first).
+        val chronologicalMessages = _uiState.value.messages.reversed()
+        
+        val history = chronologicalMessages.filter {
+            !it.isLoading && it.rawMessage.isNotBlank() && !it.isThinking
         }
+
+        // The very last message in the chronological list is newQuery itself, so we drop it to prevent duplication.
+        val historyWithoutCurrentQuery = history.dropLast(1)
 
         val maxHistoryTurns = 6
-        val recentHistory = history.takeLast(maxHistoryTurns)
-
-        val sb = StringBuilder()
-
-        // 3. Re-synthesize the ChatML sequence with preserved state
-        for (msg in recentHistory) {
-            val role = if (msg.isFromUser) USER_PREFIX else MODEL_PREFIX
-            // Clean out internal monologue tags if present so we don't duplicate reasoning logic
-            val cleanMsg = msg.rawMessage.replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "").trim()
-            sb.append(role).append(cleanMsg).append("\n")
-        }
+        val recentHistory = historyWithoutCurrentQuery.takeLast(maxHistoryTurns)
 
         val formattedContext = if (documentContext.isNotEmpty()) {
             "Relevant Context:\n$documentContext\n\n"
         } else ""
 
-        sb.append(USER_PREFIX).append(formattedContext).append(newQuery).append("\n").append(MODEL_PREFIX)
+        val historyPairs = recentHistory.map { msg ->
+            val cleanMsg = msg.rawMessage.replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "").trim()
+            Pair(msg.isFromUser, cleanMsg)
+        }
 
-        return inferenceModel.createPrompt(sb.toString(), "", isFirstTurn = true)
+        return InferenceModel.model.generateSlidingWindowPrompt(historyPairs, newQuery, formattedContext)
     }
 
     companion object {
         fun getFactory(context: Context) = object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
                 val inferenceModel = InferenceModel.getInstance(context)
+                
+                // Initialize Semantic RAG Embedder (silently falls back to Keyword search if model is missing)
+                try {
+                    TextChunker.initEmbedder(context, "universal_sentence_encoder.tflite")
+                } catch (e: Exception) {
+                    android.util.Log.e("ChatViewModel", "TextEmbedder model missing, using keyword fallback", e)
+                }
+                
                 return ChatViewModel(inferenceModel) as T
             }
         }

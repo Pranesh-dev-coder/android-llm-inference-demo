@@ -15,7 +15,7 @@ enum class Model(
     val temperature: Float,
     val topK: Int,
     val topP: Float,
-    val systemPrompt: String = "You are an Apollo Hospitals Medical Assistant. You give short, safe medical advice. If the user asks non-medical questions, politely refuse.",
+    val systemPrompt: String = "You are a helpful and knowledgeable Medical Assistant. Answer the user's questions directly, accurately, and concisely. Provide helpful medical information.",
 ) {
     GEMMA3_1B_IT_CPU(
         path = "/data/local/tmp/Gemma3-1B-IT_multi-prefill-seq_q8_ekv2048.task",
@@ -157,15 +157,66 @@ enum class Model(
                 "$prefix<start_of_turn>user\n$context$userMessage<end_of_turn>\n<start_of_turn>model\n"
             }
 
-            DEEPSEEK_R1_DISTILL_QWEN_1_5_B, QWEN2_0_5B_INSTRUCT, QWEN2_1_5B_INSTRUCT, QWEN2_5_3B_INSTRUCT, PHI_4_MINI_INSTRUCT, SMOLLM_135M_INSTRUCT, TINYLLAMA_1_1B_CHAT_V1_0 -> {
-                val prefix = if (isFirstTurn) "<|im_start|>system\n$systemPrompt<|im_end|>\n" else ""
+            DEEPSEEK_R1_DISTILL_QWEN_1_5_B, QWEN2_0_5B_INSTRUCT, QWEN2_1_5B_INSTRUCT, QWEN2_5_3B_INSTRUCT, PHI_4_MINI_INSTRUCT, SMOLLM_135M_INSTRUCT -> {
+                val prefix =
+                    if (isFirstTurn) "<|im_start|>system\n$systemPrompt<|im_end|>\n" else ""
                 "$prefix<|im_start|>user\n$context$userMessage<|im_end|>\n<|im_start|>assistant\n"
             }
 
+            TINYLLAMA_1_1B_CHAT_V1_0 -> {
+                val prefix =
+                    if (isFirstTurn) "<|system|>\n$systemPrompt</s>\n" else ""
+                "$prefix<|user|>\n$context$userMessage</s>\n<|assistant|>\n"
+            }
+
             LLAMA_3_2_1B_INSTRUCT, LLAMA_3_2_3B_INSTRUCT -> {
-                val prefix = if (isFirstTurn) "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n$systemPrompt<|eot_id|>" else ""
+                val prefix =
+                    if (isFirstTurn) "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n$systemPrompt<|eot_id|>" else ""
                 "$prefix<|start_header_id|>user<|end_header_id|>\n\n$context$userMessage<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
             }
         }
     }
+
+    fun generateSlidingWindowPrompt(history: List<Pair<Boolean, String>>, newQuery: String, context: String): String {
+        val sb = StringBuilder()
+        when (this) {
+            GEMMA3_1B_IT_CPU, GEMMA_3_1B_IT_GPU, GEMMA_2_2B_IT_CPU -> {
+                sb.append("$systemPrompt\n\n")
+                for ((isUser, msg) in history) {
+                    val role = if (isUser) "user" else "model"
+                    sb.append("<start_of_turn>$role\n$msg<end_of_turn>\n")
+                }
+                sb.append("<start_of_turn>user\n$context$newQuery<end_of_turn>\n<start_of_turn>model\n")
+            }
+
+            DEEPSEEK_R1_DISTILL_QWEN_1_5_B, QWEN2_0_5B_INSTRUCT, QWEN2_1_5B_INSTRUCT, QWEN2_5_3B_INSTRUCT, PHI_4_MINI_INSTRUCT, SMOLLM_135M_INSTRUCT -> {
+                sb.append("<|im_start|>system\n$systemPrompt<|im_end|>\n")
+                for ((isUser, msg) in history) {
+                    val role = if (isUser) "user" else "assistant"
+                    sb.append("<|im_start|>$role\n$msg<|im_end|>\n")
+                }
+                sb.append("<|im_start|>user\n$context$newQuery<|im_end|>\n<|im_start|>assistant\n")
+            }
+
+            TINYLLAMA_1_1B_CHAT_V1_0 -> {
+                sb.append("<|system|>\n$systemPrompt</s>\n")
+                for ((isUser, msg) in history) {
+                    val role = if (isUser) "user" else "assistant"
+                    sb.append("<|$role|>\n$msg</s>\n")
+                }
+                sb.append("<|user|>\n$context$newQuery</s>\n<|assistant|>\n")
+            }
+
+            LLAMA_3_2_1B_INSTRUCT, LLAMA_3_2_3B_INSTRUCT -> {
+                sb.append("<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n$systemPrompt<|eot_id|>")
+                for ((isUser, msg) in history) {
+                    val role = if (isUser) "user" else "assistant"
+                    sb.append("<|start_header_id|>$role<|end_header_id|>\n\n$msg<|eot_id|>")
+                }
+                sb.append("<|start_header_id|>user<|end_header_id|>\n\n$context$newQuery<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n")
+            }
+        }
+        return sb.toString()
+    }
 }
+

@@ -202,7 +202,7 @@ fun ChatScreen(
                 .padding(horizontal = 8.dp),
             reverseLayout = true
         ) {
-            items(uiState.messages) { chat ->
+            items(uiState.messages, key = { it.id }) { chat ->
                 ChatItem(chat)
             }
         }
@@ -342,7 +342,14 @@ fun ChatItem(
     val horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
 
     // State to control collapsible thinking process
+    var manuallyToggled by remember { mutableStateOf(false) }
     var isExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(chatMessage.isLoading) {
+        if (!manuallyToggled) {
+            isExpanded = chatMessage.isLoading
+        }
+    }
 
     Column(
         horizontalAlignment = horizontalAlignment,
@@ -363,7 +370,10 @@ fun ChatItem(
                             shape = RoundedCornerShape(8.dp)
                         )
                         .padding(horizontal = 12.dp, vertical = 6.dp)
-                        .clickable { isExpanded = !isExpanded }
+                        .clickable { 
+                            manuallyToggled = true
+                            isExpanded = !isExpanded 
+                        }
                 ) {
                     var dotCount by remember { mutableStateOf(0) }
                     LaunchedEffect(chatMessage.isLoading) {
@@ -389,8 +399,8 @@ fun ChatItem(
                     )
                 }
 
-                // Show reasoning content only when expanded or while actively loading/thinking
-                if (isExpanded || chatMessage.isLoading) {
+                // Show reasoning content only when expanded
+                if (isExpanded) {
                     Spacer(modifier = Modifier.height(4.dp))
                     ElevatedCard(
                         colors = CardDefaults.elevatedCardColors(containerColor = bubbleColor),

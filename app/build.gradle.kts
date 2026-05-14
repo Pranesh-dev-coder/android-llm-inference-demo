@@ -55,6 +55,7 @@ android {
     }
     buildFeatures {
         compose = true
+        mlModelBinding = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.9"
@@ -81,10 +82,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("com.google.android.material:material:1.12.0")
-    implementation("com.google.mediapipe:tasks-text:0.20230731")
-
-
-    implementation ("com.google.mediapipe:tasks-genai:0.10.29")
+    implementation("com.google.mediapipe:tasks-text:0.10.29")
+    implementation("com.google.mediapipe:tasks-genai:0.10.29")
 
     implementation("com.squareup.okhttp3:okhttp:4.9.3")
     implementation("net.openid:appauth:0.11.1") // Add AppAuth for OAuth support

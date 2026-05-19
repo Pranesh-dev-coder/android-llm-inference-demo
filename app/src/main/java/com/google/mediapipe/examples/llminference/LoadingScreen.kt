@@ -109,11 +109,18 @@ private fun downloadModel(
     onProgressUpdate: (Int) -> Unit
 ) {
     val requestBuilder = Request.Builder().url(model.url)
+        .addHeader("User-Agent", "MediaPipe-LLM-Android")
 
     if (model.needsAuth) {
-        val accessToken = SecureStorage.getToken(context)
+        var accessToken = SecureStorage.getToken(context)
+        
+        // Fallback to BuildConfig token if SecureStorage is empty
+        if (accessToken.isNullOrEmpty() && BuildConfig.HF_ACCESS_TOKEN.isNotEmpty()) {
+            accessToken = BuildConfig.HF_ACCESS_TOKEN
+        }
+
         if (accessToken.isNullOrEmpty()) {
-            // Trigger LoginActivity if no access token is found
+            // Trigger LoginActivity if NO access token is found anywhere
             val intent = Intent(context, LoginActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }

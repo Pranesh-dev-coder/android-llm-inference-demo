@@ -22,10 +22,10 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = PrimaryIndigo,
-    secondary = SecondarySlate,
-    background = BackgroundWhite,
-    surface = SurfaceIndigo
+    primary = PrimaryTeal,
+    secondary = SecondaryTeal,
+    background = BackgroundLight,
+    surface = SurfaceMint
 )
 
 @Composable

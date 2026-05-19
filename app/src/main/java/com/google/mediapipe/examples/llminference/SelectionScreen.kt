@@ -24,18 +24,18 @@ internal fun SelectionRoute(
             .padding(16.dp)
     ) {
         Text(
-            text = "Model Hub",
+            text = "Clinical Model Hub",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 8.dp)
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 4.dp)
         )
         Text(
-            text = "Select an optimized model to begin your local AI session.",
+            text = "Select an optimized offline model to initialize your secure session.",
             style = MaterialTheme.typography.bodyMedium,
             color = Color.Gray,
             modifier = Modifier.padding(bottom = 24.dp)
         )
-
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize()
@@ -46,6 +46,7 @@ internal fun SelectionRoute(
         }
     }
 }
+
 
 @Composable
 fun ModelCard(model: Model, onModelSelected: () -> Unit) {

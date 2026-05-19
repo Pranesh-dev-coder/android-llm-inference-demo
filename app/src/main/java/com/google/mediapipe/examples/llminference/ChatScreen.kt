@@ -117,12 +117,38 @@ fun ChatScreen(
     val tokens by remainingTokens.collectAsState(initial = -1)
 
     val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
-            val content = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { it.readText() }
-            if (content != null) {
-                onSendMessage("Context from file: $content")
+            var content: String? = null
+            val mimeType = context.contentResolver.getType(it)
+
+            if (mimeType == "application/pdf") {
+                try {
+                    val pdd = com.tom_roush.pdfbox.pdmodel.PDDocument.load(context.contentResolver.openInputStream(it))
+                    val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
+                    content = stripper.getText(pdd)
+                    pdd.close()
+                } catch (e: Exception) {
+                    android.util.Log.e("PDF", "Error reading PDF", e)
+                }
+            } else {
+                content = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { reader -> reader.readText() }
+            }
+
+            if (!content.isNullOrBlank()) {
+                var fileName = "Document"
+                try {
+                    context.contentResolver.query(it, null, null, null, null)?.use { cursor ->
+                        val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (nameIndex != -1 && cursor.moveToFirst()) {
+                            fileName = cursor.getString(nameIndex)
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("Display Name", "Error getting name", e)
+                }
+                onSendMessage("Context from file: $fileName\n$content")
             }
         }
     }
@@ -207,41 +233,7 @@ fun ChatScreen(
             }
         }
 
-        if (isContextLoaded) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(8.dp))
-                    .padding(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    Icons.Default.Add,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "📄 Document Loaded as Context",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(
-                    onClick = onClearContext,
-                    modifier = Modifier.size(24.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Clear Context",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-        }
+
 
         Row(
             modifier = Modifier
@@ -254,7 +246,7 @@ fun ChatScreen(
 
             IconButton(
                 onClick = {
-                    launcher.launch("text/plain")
+                    launcher.launch(arrayOf("text/*", "application/pdf"))
                 },
                 enabled = textInputEnabled
             ) {
@@ -318,6 +310,30 @@ fun ChatScreen(
 fun ChatItem(
     chatMessage: ChatMessage
 ) {
+    if (chatMessage.isSystem) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = chatMessage.message,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+        return
+    }
+
     val isUser = chatMessage.isFromUser
     val bubbleColor = if (isUser) {
         MaterialTheme.colorScheme.primary

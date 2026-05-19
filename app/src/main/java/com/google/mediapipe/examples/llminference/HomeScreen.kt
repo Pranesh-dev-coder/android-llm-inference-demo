@@ -23,7 +23,7 @@ fun HomeRoute(
     val gradient = Brush.verticalGradient(
         colors = listOf(
             MaterialTheme.colorScheme.primary,
-            MaterialTheme.colorScheme.primaryContainer
+            Color(0xFF004D40) // Seamless blend into dark clinical teal
         )
     )
 
@@ -32,53 +32,56 @@ fun HomeRoute(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Hero Section with Gradient
+        // Hero Section with Clinical Gradient Header
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(0.4f)
-                .background(gradient, shape = RoundedCornerShape(bottomStart = 40.dp, bottomEnd = 40.dp)),
+                .weight(0.42f)
+                .background(gradient, shape = RoundedCornerShape(bottomStart = 36.dp, bottomEnd = 36.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    imageVector = Icons.Default.Star,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(80.dp)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                // Heartbeat/Cross icon placeholder or clinical star
                 Text(
-                    text = "Edge AI Assistant",
+                    text = "⚕️",
+                    fontSize = 64.sp,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                Text(
+                    text = "Apollo Clinical Assist",
                     color = Color.White,
                     style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.ExtraBold
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
                 )
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Private. On-Device. Powerful.",
-                    color = Color.White.copy(alpha = 0.8f),
-                    style = MaterialTheme.typography.bodyLarge
+                    text = "Offline Medical Intelligence Engine",
+                    color = Color.White.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Light
                 )
             }
         }
 
-        // Info Section
+        // Info & Regulatory Standards Section
         Column(
             modifier = Modifier
-                .weight(0.6f)
-                .padding(24.dp),
+                .weight(0.58f)
+                .padding(horizontal = 28.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column {
                 Text(
-                    text = "Welcome to the Future of AI",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
+                    text = "Enterprise Offline RAG Client",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
                 Text(
-                    text = "This application runs state-of-the-art Small Language Models (SLMs) directly on your device. Your data never leaves your hardware.",
+                    text = "Designed for clinical environments with zero cloud connectivity. Patient details remain strictly local for absolute privacy.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.Gray,
                     lineHeight = 20.sp
@@ -86,10 +89,10 @@ fun HomeRoute(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Feature Highlights
-                FeatureItem("🔒 100% Private & Secure")
-                FeatureItem("⚡ Zero Latency Local Inference")
-                FeatureItem("📄 Specialized Medical RAG Support")
+                // Professional Clinical Features
+                FeatureItem("🛡️ HIPAA Compliant (No Data Leaves Device)")
+                FeatureItem("📖 Vector Search for Custom Protocols & CSVs")
+                FeatureItem("⚡ Fast, Sub-Second Local Inference")
             }
 
             Button(
@@ -97,13 +100,14 @@ fun HomeRoute(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
                 Text(
-                    text = "GET STARTED",
+                    text = "ENTER CLINICAL HUB",
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
+                    letterSpacing = 1.sp,
+                    color = Color.White
                 )
             }
         }
@@ -114,14 +118,15 @@ fun HomeRoute(
 fun FeatureItem(text: String) {
     Row(
         modifier = Modifier
-            .padding(vertical = 4.dp)
+            .padding(vertical = 6.dp)
             .fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.secondary
         )
     }
 }

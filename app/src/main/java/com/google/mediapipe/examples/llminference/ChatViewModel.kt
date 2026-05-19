@@ -41,9 +41,14 @@ class ChatViewModel(
 
     fun sendMessage(userMessage: String) {
         if (userMessage.startsWith("Context from file: ")) {
-            val rawText = userMessage.removePrefix("Context from file: ")
+            val fileAndContent = userMessage.removePrefix("Context from file: ")
+            val firstNewline = fileAndContent.indexOf('\n')
+            val fileName = if (firstNewline != -1) fileAndContent.substring(0, firstNewline) else "Document"
+            val rawText = if (firstNewline != -1) fileAndContent.substring(firstNewline + 1) else fileAndContent
+            
             textChunks = TextChunker.chunkText(rawText)
             _isContextLoaded.value = true
+            _uiState.value.addMessage("📄 Loaded: $fileName", "system")
             return
         }
 
@@ -103,6 +108,7 @@ class ChatViewModel(
         inferenceModel.resetSession()
         _uiState.value.clearMessages()
         _tokensRemaining.value = -1
+        clearContext()
     }
 
     fun recomputeSizeInTokens(message: String) {
@@ -116,7 +122,7 @@ class ChatViewModel(
         val chronologicalMessages = _uiState.value.messages.reversed()
         
         val history = chronologicalMessages.filter {
-            !it.isLoading && it.rawMessage.isNotBlank() && !it.isThinking
+            !it.isLoading && it.rawMessage.isNotBlank() && !it.isThinking && !it.isSystem
         }
 
         // The very last message in the chronological list is newQuery itself, so we drop it to prevent duplication.

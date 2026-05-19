@@ -150,28 +150,39 @@ enum class Model(
         topP = 1.0f
     );
 
+    private fun getEffectiveSystemPrompt(context: String): String {
+        var prompt = systemPrompt
+        if (this.thinking) {
+            prompt += " Keep your <think> process extremely brief. For simple questions, finish thinking in less than 2 sentences."
+            if (context.isNotEmpty()) {
+                prompt += " RAG BYPASS: If the answer is directly found in the Relevant Context, skip the thinking process and just output the text."
+            }
+        }
+        return prompt
+    }
+
     fun createPrompt(userMessage: String, context: String, isFirstTurn: Boolean): String {
         return when (this) {
             GEMMA3_1B_IT_CPU, GEMMA_3_1B_IT_GPU, GEMMA_2_2B_IT_CPU -> {
-                val prefix = if (isFirstTurn) "$systemPrompt\n\n" else ""
+                val prefix = if (isFirstTurn) "${getEffectiveSystemPrompt(context)}\n\n" else ""
                 "$prefix<start_of_turn>user\n$context$userMessage<end_of_turn>\n<start_of_turn>model\n"
             }
 
             DEEPSEEK_R1_DISTILL_QWEN_1_5_B, QWEN2_0_5B_INSTRUCT, QWEN2_1_5B_INSTRUCT, QWEN2_5_3B_INSTRUCT, PHI_4_MINI_INSTRUCT, SMOLLM_135M_INSTRUCT -> {
                 val prefix =
-                    if (isFirstTurn) "<|im_start|>system\n$systemPrompt<|im_end|>\n" else ""
+                    if (isFirstTurn) "<|im_start|>system\n${getEffectiveSystemPrompt(context)}<|im_end|>\n" else ""
                 "$prefix<|im_start|>user\n$context$userMessage<|im_end|>\n<|im_start|>assistant\n"
             }
 
             TINYLLAMA_1_1B_CHAT_V1_0 -> {
                 val prefix =
-                    if (isFirstTurn) "<|system|>\n$systemPrompt</s>\n" else ""
+                    if (isFirstTurn) "<|system|>\n${getEffectiveSystemPrompt(context)}</s>\n" else ""
                 "$prefix<|user|>\n$context$userMessage</s>\n<|assistant|>\n"
             }
 
             LLAMA_3_2_1B_INSTRUCT, LLAMA_3_2_3B_INSTRUCT -> {
                 val prefix =
-                    if (isFirstTurn) "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n$systemPrompt<|eot_id|>" else ""
+                    if (isFirstTurn) "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n${getEffectiveSystemPrompt(context)}<|eot_id|>" else ""
                 "$prefix<|start_header_id|>user<|end_header_id|>\n\n$context$userMessage<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
             }
         }
@@ -181,7 +192,7 @@ enum class Model(
         val sb = StringBuilder()
         when (this) {
             GEMMA3_1B_IT_CPU, GEMMA_3_1B_IT_GPU, GEMMA_2_2B_IT_CPU -> {
-                sb.append("$systemPrompt\n\n")
+                sb.append("${getEffectiveSystemPrompt(context)}\n\n")
                 for ((isUser, msg) in history) {
                     val role = if (isUser) "user" else "model"
                     sb.append("<start_of_turn>$role\n$msg<end_of_turn>\n")
@@ -190,7 +201,7 @@ enum class Model(
             }
 
             DEEPSEEK_R1_DISTILL_QWEN_1_5_B, QWEN2_0_5B_INSTRUCT, QWEN2_1_5B_INSTRUCT, QWEN2_5_3B_INSTRUCT, PHI_4_MINI_INSTRUCT, SMOLLM_135M_INSTRUCT -> {
-                sb.append("<|im_start|>system\n$systemPrompt<|im_end|>\n")
+                sb.append("<|im_start|>system\n${getEffectiveSystemPrompt(context)}<|im_end|>\n")
                 for ((isUser, msg) in history) {
                     val role = if (isUser) "user" else "assistant"
                     sb.append("<|im_start|>$role\n$msg<|im_end|>\n")
@@ -199,7 +210,7 @@ enum class Model(
             }
 
             TINYLLAMA_1_1B_CHAT_V1_0 -> {
-                sb.append("<|system|>\n$systemPrompt</s>\n")
+                sb.append("<|system|>\n${getEffectiveSystemPrompt(context)}</s>\n")
                 for ((isUser, msg) in history) {
                     val role = if (isUser) "user" else "assistant"
                     sb.append("<|$role|>\n$msg</s>\n")
@@ -208,7 +219,7 @@ enum class Model(
             }
 
             LLAMA_3_2_1B_INSTRUCT, LLAMA_3_2_3B_INSTRUCT -> {
-                sb.append("<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n$systemPrompt<|eot_id|>")
+                sb.append("<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n${getEffectiveSystemPrompt(context)}<|eot_id|>")
                 for ((isUser, msg) in history) {
                     val role = if (isUser) "user" else "assistant"
                     sb.append("<|start_header_id|>$role<|end_header_id|>\n\n$msg<|eot_id|>")

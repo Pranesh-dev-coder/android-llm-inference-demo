@@ -36,6 +36,9 @@ const val HOME_SCREEN = "home_screen"
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Initialize PDFBox for PDF parsing
+        com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(applicationContext)
+
         setContent {
             LLMInferenceTheme {
                 val navController = rememberNavController()

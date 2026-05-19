@@ -16,6 +16,8 @@ data class ChatMessage(
         get() = rawMessage.trim().isEmpty()
     val isFromUser: Boolean
         get() = author == USER_PREFIX
+    val isSystem: Boolean
+        get() = author == "system"
     val message: String
         get() = rawMessage.trim()
 }

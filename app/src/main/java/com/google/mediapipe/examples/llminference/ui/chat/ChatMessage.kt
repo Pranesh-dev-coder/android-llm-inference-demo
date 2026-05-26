@@ -1,4 +1,4 @@
-package com.google.mediapipe.examples.llminference
+package com.google.mediapipe.examples.llminference.ui.chat
 
 import java.util.UUID
 

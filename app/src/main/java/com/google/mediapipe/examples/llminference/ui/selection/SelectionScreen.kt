@@ -1,6 +1,9 @@
-package com.google.mediapipe.examples.llminference
+package com.google.mediapipe.examples.llminference.ui.selection
 
+import com.google.mediapipe.examples.llminference.model.Model
+import com.google.mediapipe.examples.llminference.model.InferenceModel
 import androidx.compose.foundation.layout.*
+
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*

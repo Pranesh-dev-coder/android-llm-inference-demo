@@ -1,4 +1,8 @@
-package com.google.mediapipe.examples.llminference
+package com.google.mediapipe.examples.llminference.ui.chat
+
+import com.google.mediapipe.examples.llminference.R
+import com.google.mediapipe.examples.llminference.model.InferenceModel
+import com.google.mediapipe.examples.llminference.model.Model
 
 import android.content.Context
 import androidx.compose.foundation.background
@@ -25,8 +29,11 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Add
 import android.net.Uri
+import com.google.mediapipe.examples.llminference.ui.theme.AppIcons
+import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
@@ -37,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -56,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.StateFlow
+
 
 @Composable
 internal fun ChatRoute(
@@ -113,8 +122,48 @@ fun ChatScreen(
     onChangedMessage: (String) -> Unit,
     onClose: () -> Unit
 ) {
+
+    var isRecording by remember { mutableStateOf(false) }
+    var recordPermissionGranted by remember { mutableStateOf(false) }
+
     var userMessage by rememberSaveable { mutableStateOf("") }
     val tokens by remainingTokens.collectAsState(initial = -1)
+
+
+    val speechManager = remember {
+        SpeechRecognizerManager(
+            context = context,
+            onPartialResult = { partial ->
+                userMessage = partial // Stream voice to input field
+            },
+            onFinalResult = { final ->
+                userMessage = final
+                isRecording = false
+            },
+            onError = { err ->
+                android.util.Log.e("Speech", err)
+                isRecording = false
+            }
+        )
+    }
+
+    val recordPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted: Boolean ->
+        recordPermissionGranted = granted
+        if (granted) {
+            isRecording = true
+            speechManager.startListening()
+        }
+    }
+
+
+    DisposableEffect(Unit) {
+        onDispose {
+            speechManager.destroy()
+        }
+    }
+
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -151,6 +200,7 @@ fun ChatScreen(
                 onSendMessage("Context from file: $fileName\n$content")
             }
         }
+
     }
 
     Column(
@@ -255,6 +305,30 @@ fun ChatScreen(
                     contentDescription = "Attach File"
                 )
             }
+
+            IconButton(
+                onClick = {
+                    if (isRecording){
+                        speechManager.stopListening()
+                        isRecording = false
+                    }else{
+                        if (recordPermissionGranted){
+                            isRecording = true
+                            speechManager.startListening()
+                        }else{
+                            recordPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
+                },
+                enabled = textInputEnabled
+            ) {
+                Icon(
+                    imageVector = if (isRecording) AppIcons.Stop else AppIcons.Mic,
+                    contentDescription = "Voice Dictation",
+                    tint = if (isRecording) Color.Red else MaterialTheme.colorScheme.primary
+                )
+            }
+
 
             Spacer(modifier = Modifier.width(8.dp))
 
@@ -455,27 +529,25 @@ fun ChatItem(
                 )
             )
             Row {
-                BoxWithConstraints {
-                    ElevatedCard(
-                        colors = CardDefaults.elevatedCardColors(containerColor = bubbleColor),
-                        shape = bubbleShape,
-                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
-                        modifier = Modifier.widthIn(0.dp, maxWidth * 0.85f)
-                    ) {
-                        if (chatMessage.isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.padding(12.dp).size(24.dp),
-                                strokeWidth = 2.dp,
-                                color = contentColor
-                            )
-                        } else {
-                            Text(
-                                text = chatMessage.message,
-                                color = contentColor,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
+                ElevatedCard(
+                    colors = CardDefaults.elevatedCardColors(containerColor = bubbleColor),
+                    shape = bubbleShape,
+                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier.fillMaxWidth(0.85f)
+                ) {
+                    if (chatMessage.isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.padding(12.dp).size(24.dp),
+                            strokeWidth = 2.dp,
+                            color = contentColor
+                        )
+                    } else {
+                        Text(
+                            text = chatMessage.message,
+                            color = contentColor,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(12.dp)
+                        )
                     }
                 }
             }

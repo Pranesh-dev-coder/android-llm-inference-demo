@@ -1,4 +1,4 @@
-package com.google.mediapipe.examples.llminference
+package com.google.mediapipe.examples.llminference.ui.chat
 
 import android.content.Context
 import androidx.lifecycle.ViewModel
@@ -14,16 +14,22 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.max
+import com.google.mediapipe.examples.llminference.data.db.MedicalDatabase
+import com.google.mediapipe.examples.llminference.data.db.GraphDao
+import com.google.mediapipe.examples.llminference.data.db.GraphRelationResult
+import com.google.mediapipe.examples.llminference.model.InferenceModel
+import com.google.mediapipe.examples.llminference.model.Model
 
 class ChatViewModel(
-    private var inferenceModel: InferenceModel
+    private var inferenceModel: InferenceModel,
+    private val graphDao: GraphDao
 ) : ViewModel() {
 
     private val _isContextLoaded = MutableStateFlow(false)
     val isContextLoaded: StateFlow<Boolean> = _isContextLoaded.asStateFlow()
 
     private val _uiState: MutableStateFlow<UiState> = MutableStateFlow(inferenceModel.uiState)
-    val uiState: StateFlow<UiState> =_uiState.asStateFlow()
+    val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     private val _tokensRemaining = MutableStateFlow(-1)
     val tokensRemaining: StateFlow<Int> = _tokensRemaining.asStateFlow()
@@ -32,7 +38,6 @@ class ChatViewModel(
     val isTextInputEnabled: StateFlow<Boolean> = _textInputEnabled.asStateFlow()
 
     private var textChunks: List<String> = emptyList()
-
 
     fun resetInferenceModel(newModel: InferenceModel) {
         inferenceModel = newModel
@@ -60,16 +65,32 @@ class ChatViewModel(
                 // 1. Flush the C++ KV Cache to prevent ekv1280 overflow crashes
                 inferenceModel.resetSession()
 
-                // 2. Format any loaded document context cleanly
-                val contextString = if (textChunks.isNotEmpty()){
-                    val bestChunk = TextChunker.findBestChunk(userMessage, textChunks)
-                    "Relevant Document Context:\n$bestChunk\n\n"
+                // 2. Perform G-RAG database query (Feature 5)
+                val graphContext = lookupGraphRelationships(userMessage)
+
+                // 3. Perform Smart Compressed Vector Chunks Query (Feature 1)
+                val vectorContext = if (textChunks.isNotEmpty()) {
+                    TextChunker.findBestContextChunks(userMessage, textChunks)
                 } else ""
 
-                // 3. Generate a syntactically pristine standalone ChatML sequence wrapper
-                val finalPrompt = buildSlidingWindowPrompt(userMessage, contextString)
+                // 4. Combine both clinical context streams cleanly
+                val combinedContext = StringBuilder().apply {
+                    if (graphContext.isNotEmpty()) {
+                        append("VERIFIED MEDICAL KNOWLEDGE GRAPH FACTS (ZERO-HALLUCINATION TRUTH):\n")
+                        append(graphContext)
+                        append("\n\n")
+                    }
+                    if (vectorContext.isNotEmpty()) {
+                        append("RELEVANT UPLOADED PROTOCOL CONTEXT:\n")
+                        append(vectorContext)
+                        append("\n\n")
+                    }
+                }.toString()
 
-                val asyncInference =  inferenceModel.generateResponseAsync(finalPrompt, { partialResult: String, done: Boolean ->
+                // 5. Generate a syntactically pristine standalone ChatML sequence wrapper
+                val finalPrompt = buildSlidingWindowPrompt(userMessage, combinedContext)
+
+                val asyncInference = inferenceModel.generateResponseAsync(finalPrompt, { partialResult: String, done: Boolean ->
                     _uiState.value.appendMessage(partialResult)
                     if (done) {
                         _uiState.value.finishMessage()
@@ -90,6 +111,43 @@ class ChatViewModel(
                 _uiState.value.addMessage(e.localizedMessage ?: "Unknown Error", MODEL_PREFIX)
                 setInputEnabled(true)
             }
+        }
+    }
+
+    /**
+     * Searches the local database for terms found in the user's question,
+     * finds explicit relationships between them, and formats them for prompt grounding.
+     */
+    private fun lookupGraphRelationships(query: String): String {
+        val cleanQuery = query.lowercase()
+        val words = cleanQuery.split(Regex("\\W+")).filter { it.length > 3 }
+        val detectedEntities = mutableListOf<String>()
+
+        for (word in words) {
+            val match = graphDao.findEntityByName("%$word%")
+            if (match != null) {
+                detectedEntities.add(match.name)
+            }
+        }
+
+        val uniqueEntities = detectedEntities.distinct()
+        if (uniqueEntities.size < 2) return "" // Need at least two entities to construct path relationships!
+
+        val relationshipsFound = mutableListOf<GraphRelationResult>()
+
+        // Cross-check all detected entities in pairs to find direct relationships
+        for (i in 0 until uniqueEntities.size) {
+            for (j in i + 1 until uniqueEntities.size) {
+                val relations = graphDao.getDirectRelationships(uniqueEntities[i], uniqueEntities[j])
+                relationshipsFound.addAll(relations)
+            }
+        }
+
+        if (relationshipsFound.isEmpty()) return ""
+
+        // Format relation paths into a deterministic facts block
+        return relationshipsFound.joinToString("\n") { rel ->
+            "- ${rel.sourceName} (${rel.sourceDomain}) -> [${rel.relationType}] -> ${rel.targetName} (${rel.targetDomain})${if (rel.notes != null) " [Details: ${rel.notes}]" else ""}"
         }
     }
 
@@ -148,6 +206,10 @@ class ChatViewModel(
             override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
                 val inferenceModel = InferenceModel.getInstance(context)
                 
+                // Initialize SQLite Room Graph database safely
+                val db = MedicalDatabase.getDatabase(context.applicationContext)
+                val graphDao = db.graphDao()
+                
                 // Initialize Semantic RAG Embedder (silently falls back to Keyword search if model is missing)
                 try {
                     TextChunker.initEmbedder(context, "universal_sentence_encoder.tflite")
@@ -155,9 +217,10 @@ class ChatViewModel(
                     android.util.Log.e("ChatViewModel", "TextEmbedder model missing, using keyword fallback", e)
                 }
                 
-                return ChatViewModel(inferenceModel) as T
+                return ChatViewModel(inferenceModel, graphDao) as T
             }
         }
     }
 }
+
 

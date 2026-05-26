@@ -27,6 +27,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.google.mediapipe.examples.llminference.ui.theme.LLMInferenceTheme
+import com.google.mediapipe.examples.llminference.ui.home.HomeRoute
+import com.google.mediapipe.examples.llminference.ui.selection.SelectionRoute
+import com.google.mediapipe.examples.llminference.ui.loading.LoadingRoute
+import com.google.mediapipe.examples.llminference.ui.chat.ChatRoute
+import com.google.mediapipe.examples.llminference.model.InferenceModel
 
 const val START_SCREEN = "start_screen"
 const val LOAD_SCREEN = "load_screen"

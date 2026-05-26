@@ -1,4 +1,6 @@
-package com.google.mediapipe.examples.llminference
+package com.google.mediapipe.examples.llminference.model
+
+import com.google.mediapipe.examples.llminference.ui.chat.UiState
 
 import android.content.Context
 import android.net.Uri

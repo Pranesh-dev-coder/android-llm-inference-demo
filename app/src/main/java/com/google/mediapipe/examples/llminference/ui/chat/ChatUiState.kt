@@ -1,6 +1,8 @@
-package com.google.mediapipe.examples.llminference
+package com.google.mediapipe.examples.llminference.ui.chat
 
 import androidx.compose.runtime.toMutableStateList
+import com.google.mediapipe.examples.llminference.model.InferenceModel
+
 
 const val USER_PREFIX = "user"
 const val MODEL_PREFIX = "model"

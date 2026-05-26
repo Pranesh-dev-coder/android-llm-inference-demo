@@ -1,4 +1,4 @@
-package com.google.mediapipe.examples.llminference
+package com.google.mediapipe.examples.llminference.ui.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*

@@ -1,4 +1,4 @@
-package com.google.mediapipe.examples.llminference
+package com.google.mediapipe.examples.llminference.model
 
 
 import com.google.mediapipe.tasks.genai.llminference.LlmInference.Backend

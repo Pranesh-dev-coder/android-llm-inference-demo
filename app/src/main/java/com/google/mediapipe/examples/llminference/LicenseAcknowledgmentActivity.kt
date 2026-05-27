@@ -7,6 +7,7 @@ import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.browser.customtabs.CustomTabsIntent
+import com.google.mediapipe.examples.llminference.model.InferenceModel
 
 class LicenseAcknowledgmentActivity : AppCompatActivity() {
   private lateinit var acknowledgeButton: Button

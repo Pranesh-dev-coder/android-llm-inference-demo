@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
+import com.google.mediapipe.examples.llminference.model.InferenceModel
 import net.openid.appauth.AuthorizationService
 import net.openid.appauth.GrantTypeValues
 import net.openid.appauth.TokenRequest

@@ -39,6 +39,9 @@ class ChatViewModel(
 
     private var textChunks: List<String> = emptyList()
 
+    private var currentInferenceFuture: com.google.common.util.concurrent.ListenableFuture<String>? = null
+    @Volatile private var isCancelled = false
+
     fun resetInferenceModel(newModel: InferenceModel) {
         inferenceModel = newModel
         _uiState.value = inferenceModel.uiState
@@ -58,6 +61,7 @@ class ChatViewModel(
         }
 
         viewModelScope.launch(Dispatchers.IO) {
+            isCancelled = false
             _uiState.value.addMessage(userMessage, USER_PREFIX)
             _uiState.value.createLoadingMessage()
             setInputEnabled(false)
@@ -91,6 +95,7 @@ class ChatViewModel(
                 val finalPrompt = buildSlidingWindowPrompt(userMessage, combinedContext)
 
                 val asyncInference = inferenceModel.generateResponseAsync(finalPrompt, { partialResult: String, done: Boolean ->
+                    if (isCancelled) return@generateResponseAsync
                     _uiState.value.appendMessage(partialResult)
                     if (done) {
                         _uiState.value.finishMessage()
@@ -101,10 +106,13 @@ class ChatViewModel(
                         _tokensRemaining.update { max(0, it - 1) }
                     }
                 })
+                currentInferenceFuture = asyncInference
                 // Once the inference is done, recompute the remaining size in tokens
                 asyncInference.addListener({
-                    viewModelScope.launch(Dispatchers.IO) {
-                        recomputeSizeInTokens(userMessage)
+                    if (!isCancelled) {
+                        viewModelScope.launch(Dispatchers.IO) {
+                            recomputeSizeInTokens(userMessage)
+                        }
                     }
                 }, Dispatchers.Main.asExecutor())
             } catch (e: Exception) {
@@ -155,6 +163,22 @@ class ChatViewModel(
         _textInputEnabled.value = isEnabled
     }
 
+    fun cancelGeneration() {
+        isCancelled = true
+        currentInferenceFuture?.cancel(true)
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                inferenceModel.resetSession()
+            } catch (e: Exception) {
+                android.util.Log.e("ChatViewModel", "Failed to reset session on cancel", e)
+            }
+        }
+        
+        _uiState.value.finishMessage()
+        setInputEnabled(true)
+    }
+
     fun clearContext() {
         // 1. Clear the list of chunks
         textChunks = emptyList()
@@ -170,8 +194,14 @@ class ChatViewModel(
     }
 
     fun recomputeSizeInTokens(message: String) {
-        val remainingTokens = inferenceModel.estimateTokensRemaining(message)
-        _tokensRemaining.value = remainingTokens
+        try {
+            val remainingTokens = inferenceModel.estimateTokensRemaining(message)
+            _tokensRemaining.value = remainingTokens
+        } catch (e: IllegalStateException) {
+            android.util.Log.w("ChatViewModel", "Model busy, skipping token calculation.")
+        } catch (e: Exception) {
+            android.util.Log.e("ChatViewModel", "Error computing tokens", e)
+        }
     }
 
     private fun buildSlidingWindowPrompt(newQuery: String, documentContext: String): String {

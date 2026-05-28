@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import android.net.Uri
 import com.google.mediapipe.examples.llminference.ui.theme.AppIcons
 import androidx.compose.ui.unit.dp
@@ -104,6 +105,9 @@ internal fun ChatRoute(
         onChangedMessage = { message ->
             chatViewModel.recomputeSizeInTokens(message)
         },
+        onStopGeneration = {
+            chatViewModel.cancelGeneration()
+        },
         onClose = onClose
     )
 }
@@ -120,47 +124,23 @@ fun ChatScreen(
     onClearContext: () -> Unit,
     onResetChat: () -> Unit,
     onChangedMessage: (String) -> Unit,
+    onStopGeneration: () -> Unit,
     onClose: () -> Unit
 ) {
-
-    var isRecording by remember { mutableStateOf(false) }
-    var recordPermissionGranted by remember { mutableStateOf(false) }
 
     var userMessage by rememberSaveable { mutableStateOf("") }
     val tokens by remainingTokens.collectAsState(initial = -1)
 
 
-    val speechManager = remember {
-        SpeechRecognizerManager(
-            context = context,
-            onPartialResult = { partial ->
-                userMessage = partial // Stream voice to input field
-            },
-            onFinalResult = { final ->
-                userMessage = final
-                isRecording = false
-            },
-            onError = { err ->
-                android.util.Log.e("Speech", err)
-                isRecording = false
+    val speechRecognizerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val spokenText = result.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spokenText.isNullOrBlank()) {
+                onSendMessage(spokenText)
+                userMessage = ""
             }
-        )
-    }
-
-    val recordPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted: Boolean ->
-        recordPermissionGranted = granted
-        if (granted) {
-            isRecording = true
-            speechManager.startListening()
-        }
-    }
-
-
-    DisposableEffect(Unit) {
-        onDispose {
-            speechManager.destroy()
         }
     }
 
@@ -279,7 +259,9 @@ fun ChatScreen(
             reverseLayout = true
         ) {
             items(uiState.messages, key = { it.id }) { chat ->
-                ChatItem(chat)
+                ChatItem(chat, onEdit = { editMessage ->
+                    userMessage = editMessage
+                })
             }
         }
 
@@ -308,24 +290,23 @@ fun ChatScreen(
 
             IconButton(
                 onClick = {
-                    if (isRecording){
-                        speechManager.stopListening()
-                        isRecording = false
-                    }else{
-                        if (recordPermissionGranted){
-                            isRecording = true
-                            speechManager.startListening()
-                        }else{
-                            recordPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                        }
+                    val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault())
+                        putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Speak your message...")
+                    }
+                    try {
+                        speechRecognizerLauncher.launch(intent)
+                    } catch (e: Exception) {
+                        android.util.Log.e("Speech", "Speech recognizer intent not supported", e)
                     }
                 },
                 enabled = textInputEnabled
             ) {
                 Icon(
-                    imageVector = if (isRecording) AppIcons.Stop else AppIcons.Mic,
+                    imageVector = AppIcons.Mic,
                     contentDescription = "Voice Dictation",
-                    tint = if (isRecording) Color.Red else MaterialTheme.colorScheme.primary
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
 
@@ -358,7 +339,9 @@ fun ChatScreen(
 
             IconButton(
                 onClick = {
-                    if (userMessage.isNotBlank()) {
+                    if (!textInputEnabled) {
+                        onStopGeneration()
+                    } else if (userMessage.isNotBlank()) {
                         onSendMessage(userMessage)
                         userMessage = ""
                     }
@@ -368,13 +351,22 @@ fun ChatScreen(
                     .align(Alignment.CenterVertically)
                     .fillMaxWidth()
                     .weight(0.15f),
-                enabled = textInputEnabled && tokens > 0
+                enabled = !textInputEnabled || tokens > 0
             ) {
-                Icon(
-                    Icons.AutoMirrored.Default.Send,
-                    contentDescription = stringResource(R.string.action_send),
-                    modifier = Modifier
-                )
+                if (!textInputEnabled) {
+                    Icon(
+                        AppIcons.Stop,
+                        contentDescription = "Stop Generation",
+                        tint = Color.Red,
+                        modifier = Modifier
+                    )
+                } else {
+                    Icon(
+                        Icons.AutoMirrored.Default.Send,
+                        contentDescription = stringResource(R.string.action_send),
+                        modifier = Modifier
+                    )
+                }
             }
         }
     }
@@ -382,7 +374,8 @@ fun ChatScreen(
 
 @Composable
 fun ChatItem(
-    chatMessage: ChatMessage
+    chatMessage: ChatMessage,
+    onEdit: (String) -> Unit
 ) {
     if (chatMessage.isSystem) {
         Box(
@@ -528,7 +521,19 @@ fun ChatItem(
                     end = if (isUser) 4.dp else 0.dp
                 )
             )
-            Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isUser) {
+                    IconButton(
+                        onClick = { onEdit(chatMessage.message) },
+                        modifier = Modifier.padding(end = 4.dp).size(24.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = "Edit Message",
+                            tint = Color.Gray
+                        )
+                    }
+                }
                 ElevatedCard(
                     colors = CardDefaults.elevatedCardColors(containerColor = bubbleColor),
                     shape = bubbleShape,

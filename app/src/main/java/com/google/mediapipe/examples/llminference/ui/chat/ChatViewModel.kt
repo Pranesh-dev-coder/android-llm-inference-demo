@@ -14,9 +14,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.max
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.google.mediapipe.examples.llminference.data.db.MedicalDatabase
 import com.google.mediapipe.examples.llminference.data.db.GraphDao
 import com.google.mediapipe.examples.llminference.data.db.GraphRelationResult
+import com.google.mediapipe.examples.llminference.data.db.MedicalEntity
 import com.google.mediapipe.examples.llminference.model.InferenceModel
 import com.google.mediapipe.examples.llminference.model.Model
 
@@ -40,7 +43,11 @@ class ChatViewModel(
     private var textChunks: List<String> = emptyList()
 
     private var currentInferenceFuture: com.google.common.util.concurrent.ListenableFuture<String>? = null
-    @Volatile private var isCancelled = false
+    @Volatile private var generationId = 0
+    // True while the native C++ engine is actively generating tokens.
+    // Unlike Future.isDone, this is NOT set to true by cancel() — only by the real done=true callback.
+    @Volatile private var engineBusy = false
+    private val inferenceMutex = Mutex()
 
     fun resetInferenceModel(newModel: InferenceModel) {
         inferenceModel = newModel
@@ -61,15 +68,31 @@ class ChatViewModel(
         }
 
         viewModelScope.launch(Dispatchers.IO) {
-            isCancelled = false
-            _uiState.value.addMessage(userMessage, USER_PREFIX)
-            _uiState.value.createLoadingMessage()
-            setInputEnabled(false)
+            val myGenerationId = ++generationId
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                _uiState.value.addMessage(userMessage, USER_PREFIX)
+                _uiState.value.createLoadingMessage()
+                setInputEnabled(false)
+            }
             try {
-                // 1. Flush the C++ KV Cache to prevent ekv1280 overflow crashes
-                inferenceModel.resetSession()
+                // 1. Wait for the C++ engine to truly become idle before resetting the session.
+                //    We use the engineBusy flag (set by the real done=true callback) because
+                //    ListenableFuture.isDone() returns true immediately after cancel(true),
+                //    even though the native engine is still generating tokens underneath.
+                inferenceMutex.withLock {
+                    var waited = 0
+                    while (engineBusy && waited < 60) { // max ~9s wait
+                        kotlinx.coroutines.delay(150)
+                        waited++
+                    }
+                    if (engineBusy) {
+                        android.util.Log.w("ChatViewModel", "Engine still busy after timeout — forcing session reset")
+                    }
+                    inferenceModel.resetSession()
+                }
 
                 // 2. Perform G-RAG database query (Feature 5)
+
                 val graphContext = lookupGraphRelationships(userMessage)
 
                 // 3. Perform Smart Compressed Vector Chunks Query (Feature 1)
@@ -94,30 +117,45 @@ class ChatViewModel(
                 // 5. Generate a syntactically pristine standalone ChatML sequence wrapper
                 val finalPrompt = buildSlidingWindowPrompt(userMessage, combinedContext)
 
+                engineBusy = true
                 val asyncInference = inferenceModel.generateResponseAsync(finalPrompt, { partialResult: String, done: Boolean ->
-                    if (isCancelled) return@generateResponseAsync
-                    _uiState.value.appendMessage(partialResult)
-                    if (done) {
-                        _uiState.value.finishMessage()
-                        setInputEnabled(true)  // Re-enable text input
-                    } else {
-                        // Reduce current token count (estimate only). sizeInTokens() will be used
-                        // when computation is done
+                    // Clear engineBusy BEFORE the generationId guard so cancelled generations
+                    // still unblock the next sendMessage() that may be spin-waiting.
+                    if (done) engineBusy = false
+                    if (myGenerationId != generationId) return@generateResponseAsync
+                    viewModelScope.launch(Dispatchers.Main) {
+                        _uiState.value.appendMessage(partialResult)
+                        if (done) {
+                            _uiState.value.finishMessage()
+                            setInputEnabled(true)
+                        }
+                    }
+                    if (!done) {
                         _tokensRemaining.update { max(0, it - 1) }
                     }
                 })
                 currentInferenceFuture = asyncInference
                 // Once the inference is done, recompute the remaining size in tokens
                 asyncInference.addListener({
-                    if (!isCancelled) {
+                    if (myGenerationId == generationId) {
                         viewModelScope.launch(Dispatchers.IO) {
                             recomputeSizeInTokens(userMessage)
                         }
                     }
                 }, Dispatchers.Main.asExecutor())
             } catch (e: Exception) {
-                _uiState.value.addMessage(e.localizedMessage ?: "Unknown Error", MODEL_PREFIX)
-                setInputEnabled(true)
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    if (e !is java.util.concurrent.CancellationException) {
+                        android.util.Log.e("ChatViewModel", "Inference failed", e)
+                        _uiState.value.removeCurrentMessage()
+                        if (e is IllegalStateException) {
+                            _uiState.value.addMessage("⚠️ The model is busy. Please wait a moment and try again.", "system")
+                        } else {
+                            _uiState.value.addMessage("⚠️ Error: ${e.localizedMessage ?: "Please try again."}", "system")
+                        }
+                    }
+                    setInputEnabled(true)
+                }
             }
         }
     }
@@ -129,34 +167,40 @@ class ChatViewModel(
     private fun lookupGraphRelationships(query: String): String {
         val cleanQuery = query.lowercase()
         val words = cleanQuery.split(Regex("\\W+")).filter { it.length > 3 }
-        val detectedEntities = mutableListOf<String>()
+        val detectedEntities = mutableListOf<MedicalEntity>()
 
         for (word in words) {
             val match = graphDao.findEntityByName("%$word%")
             if (match != null) {
-                detectedEntities.add(match.name)
+                detectedEntities.add(match)
             }
         }
 
-        val uniqueEntities = detectedEntities.distinct()
-        if (uniqueEntities.size < 2) return "" // Need at least two entities to construct path relationships!
+        val uniqueEntities = detectedEntities.distinctBy { it.id }
+        if (uniqueEntities.isEmpty()) return ""
 
-        val relationshipsFound = mutableListOf<GraphRelationResult>()
+        val sb = java.lang.StringBuilder()
 
-        // Cross-check all detected entities in pairs to find direct relationships
-        for (i in 0 until uniqueEntities.size) {
-            for (j in i + 1 until uniqueEntities.size) {
-                val relations = graphDao.getDirectRelationships(uniqueEntities[i], uniqueEntities[j])
-                relationshipsFound.addAll(relations)
+        // 1. Single Entity Facts
+        uniqueEntities.forEach { entity ->
+            sb.append("[Fact: ${entity.name} (${entity.domain}) - ${entity.description ?: ""}]\n")
+        }
+
+        // 2. Relationship Checks
+        if (uniqueEntities.size >= 2) {
+            val relationshipsFound = mutableListOf<GraphRelationResult>()
+            for (i in 0 until uniqueEntities.size) {
+                for (j in i + 1 until uniqueEntities.size) {
+                    val relations = graphDao.getDirectRelationships(uniqueEntities[i].name, uniqueEntities[j].name)
+                    relationshipsFound.addAll(relations)
+                }
+            }
+            relationshipsFound.distinct().forEach { rel ->
+                sb.append("[Relation: ${rel.sourceName} ${rel.relationType} ${rel.targetName} - ${rel.notes ?: ""}]\n")
             }
         }
 
-        if (relationshipsFound.isEmpty()) return ""
-
-        // Format relation paths into a deterministic facts block
-        return relationshipsFound.joinToString("\n") { rel ->
-            "- ${rel.sourceName} (${rel.sourceDomain}) -> [${rel.relationType}] -> ${rel.targetName} (${rel.targetDomain})${if (rel.notes != null) " [Details: ${rel.notes}]" else ""}"
-        }
+        return sb.toString().trim()
     }
 
     private fun setInputEnabled(isEnabled: Boolean) {
@@ -164,19 +208,16 @@ class ChatViewModel(
     }
 
     fun cancelGeneration() {
-        isCancelled = true
-        currentInferenceFuture?.cancel(true)
-        
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                inferenceModel.resetSession()
-            } catch (e: Exception) {
-                android.util.Log.e("ChatViewModel", "Failed to reset session on cancel", e)
-            }
+        // Increment generationId to instantly cut off UI updates from the old generation.
+        generationId++
+        // Use the native MediaPipe cancellation API. This safely stops the C++ engine
+        // and triggers the done=true callback cleanly, setting engineBusy = false.
+        inferenceModel.cancelGeneration()
+
+        viewModelScope.launch(Dispatchers.Main) {
+            _uiState.value.finishMessage()
+            setInputEnabled(true)
         }
-        
-        _uiState.value.finishMessage()
-        setInputEnabled(true)
     }
 
     fun clearContext() {
@@ -187,10 +228,18 @@ class ChatViewModel(
     }
 
     fun resetChat() {
-        inferenceModel.resetSession()
+        viewModelScope.launch(Dispatchers.IO) {
+            inferenceMutex.withLock {
+                inferenceModel.resetSession()
+            }
+        }
         _uiState.value.clearMessages()
         _tokensRemaining.value = -1
         clearContext()
+    }
+
+    fun rewindToMessage(messageId: String): String? {
+        return _uiState.value.rewindToMessage(messageId)
     }
 
     fun recomputeSizeInTokens(message: String) {
@@ -224,8 +273,7 @@ class ChatViewModel(
         } else ""
 
         val historyPairs = recentHistory.map { msg ->
-            val cleanMsg = msg.rawMessage.replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "").trim()
-            Pair(msg.isFromUser, cleanMsg)
+            Pair(msg.isFromUser, msg.message)
         }
 
         return InferenceModel.model.generateSlidingWindowPrompt(historyPairs, newQuery, formattedContext)

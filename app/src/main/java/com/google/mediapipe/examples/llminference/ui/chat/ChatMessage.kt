@@ -8,16 +8,18 @@ import java.util.UUID
 data class ChatMessage(
     val id: String = UUID.randomUUID().toString(),
     val rawMessage: String = "",
+    val thinkingText: String = "",
+    val answerText: String = "",
     val author: String,
     val isLoading: Boolean = false,
     val isThinking: Boolean = false,
 ) {
     val isEmpty: Boolean
-        get() = rawMessage.trim().isEmpty()
+        get() = answerText.trim().isEmpty() && thinkingText.trim().isEmpty()
     val isFromUser: Boolean
         get() = author == USER_PREFIX
     val isSystem: Boolean
         get() = author == "system"
     val message: String
-        get() = rawMessage.trim()
+        get() = if (answerText.isNotEmpty()) answerText.trim() else rawMessage.trim()
 }

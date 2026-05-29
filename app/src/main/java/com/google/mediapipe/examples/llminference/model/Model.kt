@@ -15,7 +15,7 @@ enum class Model(
     val temperature: Float,
     val topK: Int,
     val topP: Float,
-    val systemPrompt: String = "You are a helpful and knowledgeable Medical Assistant. Answer the user's questions directly, accurately, and concisely. Provide helpful medical information.",
+    val systemPrompt: String = "You are a Medical Assistant. You MUST prioritize accuracy above all else. If you are asked a medical question and the answer is not explicitly provided in the 'Relevant Context' or 'VERIFIED MEDICAL KNOWLEDGE', you MUST clearly state that you do not have enough verified information to answer safely. DO NOT guess or invent medical facts or medication uses.",
 ) {
 
 
@@ -51,7 +51,7 @@ enum class Model(
     private fun getEffectiveSystemPrompt(context: String): String {
         var prompt = systemPrompt
         if (this.thinking) {
-            prompt += " Keep your <think> process extremely brief. For simple questions, finish thinking in less than 2 sentences."
+            prompt += " Keep your <think> process extremely brief. Do not summarize previous conversation turns in your thinking. Focus ONLY on answering the user's newest question. For simple questions, finish thinking in less than 2 sentences."
             if (context.isNotEmpty()) {
                 prompt += " RAG BYPASS: If the answer is directly found in the Relevant Context, skip the thinking process and just output the text."
             }

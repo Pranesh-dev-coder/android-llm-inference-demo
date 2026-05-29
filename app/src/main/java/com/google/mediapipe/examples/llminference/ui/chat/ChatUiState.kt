@@ -23,10 +23,18 @@ class UiState(
     
     // Accumulator for the current partial response to handle split markers
     private var currentResponseBuffer = ""
+    private var thinkingContent = ""
+    private var mainContent = ""
+    private var tagBuffer = ""
+    private var insideThinkBlock = false
 
     /** Creates a new loading message. */
     fun createLoadingMessage() {
         currentResponseBuffer = ""
+        thinkingContent = ""
+        mainContent = ""
+        tagBuffer = ""
+        insideThinkBlock = InferenceModel.model.thinking
         val chatMessage = ChatMessage(
             author = MODEL_PREFIX, 
             isLoading = true, 
@@ -40,87 +48,122 @@ class UiState(
      * Appends the specified delta text to the current message.
      */
     fun appendMessage(delta: String) {
-        var index = _messages.indexOfFirst { it.id == _currentMessageId }
+        val index = _messages.indexOfFirst { it.id == _currentMessageId }
         if (index == -1) return
 
         currentResponseBuffer += delta
-        
-        // Hallucination check: if the model starts generating user turns, we truncate it.
-        for (stopMarker in STOP_MARKERS) {
-            if (currentResponseBuffer.contains(stopMarker)) {
-                currentResponseBuffer = currentResponseBuffer.substringBefore(stopMarker)
-            }
-        }
+        val msg = _messages[index]
 
-        // Auto-detect thinking state
-        if (!_messages[index].isThinking && currentResponseBuffer.contains(THINKING_MARKER_START)) {
-            _messages[index] = _messages[index].copy(isThinking = true)
-        }
-
-        if (_messages[index].isThinking) {
-            if (currentResponseBuffer.contains(THINKING_MARKER_END)) {
-                val splitIndex = currentResponseBuffer.indexOf(THINKING_MARKER_END)
-                val thinkingText = currentResponseBuffer.substring(0, splitIndex)
-                val answerText = currentResponseBuffer.substring(splitIndex + THINKING_MARKER_END.length)
-
-                // Update thinking bubble and finish it
-                updateMessageContent(index, cleanThinkingText(thinkingText), isLoading = false)
-
-                // Create new answer bubble
-                val answerMessage = ChatMessage(
-                    rawMessage = answerText.trimStart(),
-                    author = MODEL_PREFIX,
-                    isLoading = true,
-                    isThinking = false
-                )
-                _messages.add(answerMessage)
-                _currentMessageId = answerMessage.id
-                
-                // Switch buffer and index for the answer part
-                currentResponseBuffer = answerText
+        // Process char by char for a robust state machine to handle broken streaming chunks
+        for (char in delta) {
+            if (char == '<' && tagBuffer.isEmpty()) {
+                tagBuffer += char
+            } else if (tagBuffer.isNotEmpty()) {
+                tagBuffer += char
+                if (tagBuffer == "<think>") {
+                    insideThinkBlock = true
+                    tagBuffer = ""
+                } else if (tagBuffer == "</think>") {
+                    insideThinkBlock = false
+                    tagBuffer = ""
+                } else if (!"<think>".startsWith(tagBuffer) && !"</think>".startsWith(tagBuffer)) {
+                    // Not a tag, flush buffer
+                    if (insideThinkBlock) {
+                        thinkingContent += tagBuffer
+                    } else {
+                        mainContent += tagBuffer
+                    }
+                    tagBuffer = ""
+                }
             } else {
-                // Still thinking - preserve internal newlines
-                updateMessageContent(index, cleanThinkingText(currentResponseBuffer), isLoading = true)
+                if (insideThinkBlock) {
+                    thinkingContent += char
+                } else {
+                    mainContent += char
+                }
             }
-        } else {
-            // Updating the answer bubble
-            updateMessageContent(index, currentResponseBuffer.trimStart(), isLoading = true)
         }
-    }
+        
+        // Hallucination check
+        for (stopMarker in STOP_MARKERS) {
+            if (mainContent.contains(stopMarker)) {
+                mainContent = mainContent.substringBefore(stopMarker)
+            }
+        }
 
-    private fun updateMessageContent(index: Int, text: String, isLoading: Boolean) {
-        _messages[index] = _messages[index].copy(
-            rawMessage = text,
-            isLoading = isLoading
+        // Update the single answer bubble with separated logic
+        _messages[index] = msg.copy(
+            rawMessage = currentResponseBuffer,
+            thinkingText = thinkingContent.trimStart(),
+            answerText = mainContent.trimStart(),
+            isLoading = true
         )
-    }
-
-    private fun cleanThinkingText(text: String): String {
-        return text.replace(THINKING_MARKER_START, "")
-            .replace("<think>", "")
-            .trimStart()
     }
 
     /** Called when the model is done generating. */
     fun finishMessage() {
         val index = _messages.indexOfFirst { it.id == _currentMessageId }
         if (index != -1) {
-            val msg = _messages[index]
-            if (msg.isThinking) {
-                // Fallback: If the model finishes generating but never outputted </think>,
-                // treat the entire block as the final answer so it doesn't get stuck in the UI.
-                _messages[index] = msg.copy(isLoading = false, isThinking = false)
-            } else {
-                _messages[index] = msg.copy(isLoading = false)
+            // Flush any remaining tag buffer just in case
+            if (tagBuffer.isNotEmpty()) {
+                if (insideThinkBlock) {
+                    thinkingContent += tagBuffer
+                } else {
+                    mainContent += tagBuffer
+                }
+                tagBuffer = ""
             }
+            val msg = _messages[index]
+            _messages[index] = msg.copy(
+                thinkingText = thinkingContent.trimStart(),
+                answerText = mainContent.trimStart(),
+                isLoading = false
+            )
         }
         currentResponseBuffer = ""
+        thinkingContent = ""
+        mainContent = ""
+        tagBuffer = ""
+        insideThinkBlock = false
+        removeEmptyMessages()
+    }
+
+    fun removeEmptyMessages() {
+        _messages.removeAll { it.isEmpty }
+    }
+
+    fun rewindToMessage(messageId: String): String? {
+        val index = _messages.indexOfFirst { it.id == messageId }
+        if (index != -1) {
+            val raw = _messages[index].rawMessage
+            while (_messages.size > index) {
+                _messages.removeAt(_messages.size - 1)
+            }
+            
+            // Cleanly reset parser states when rewinding history
+            currentResponseBuffer = ""
+            thinkingContent = ""
+            mainContent = ""
+            tagBuffer = ""
+            insideThinkBlock = false
+            
+            return raw
+        }
+        return null
+    }
+
+    fun removeCurrentMessage() {
+        val index = _messages.indexOfFirst { it.id == _currentMessageId }
+        if (index != -1) {
+            _messages.removeAt(index)
+        }
     }
 
     /** Creates a new message with the specified text and author. */
     fun addMessage(text: String, author: String) {
         val chatMessage = ChatMessage(
             rawMessage = text,
+            answerText = text,
             author = author
         )
         _messages.add(chatMessage)
@@ -131,5 +174,9 @@ class UiState(
     fun clearMessages() {
         _messages.clear()
         currentResponseBuffer = ""
+        thinkingContent = ""
+        mainContent = ""
+        tagBuffer = ""
+        insideThinkBlock = false
     }
 }

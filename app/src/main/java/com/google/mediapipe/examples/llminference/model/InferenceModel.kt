@@ -95,6 +95,14 @@ class InferenceModel private constructor(context: Context) {
         return llmInferenceSession.generateResponseAsync(progressListener)
     }
 
+    fun cancelGeneration() {
+        try {
+            llmInferenceSession.cancelGenerateResponseAsync()
+        } catch (e: Exception) {
+            Log.e(TAG, "Cancel generation error: ${e.message}", e)
+        }
+    }
+
     fun estimateTokensRemaining(prompt: String): Int {
         val context = uiState.messages.joinToString { it.rawMessage } + prompt
         if (context.isEmpty()) return -1 // Specia marker if no content has been added
